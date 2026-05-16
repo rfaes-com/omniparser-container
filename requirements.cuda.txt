@@ -1,0 +1,5 @@
+easyocr
+numpy==1.26.4
+paddlepaddle
+paddleocr<3
+onnxruntime-gpu

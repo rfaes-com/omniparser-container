@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1.7
+
+FROM python:3.12-slim
+
+ENV PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/cache/huggingface
+
+RUN python -m pip install --upgrade pip \
+    && python -m pip install "huggingface-hub[cli]"
+
+COPY scripts/download_weights.sh /usr/local/bin/download_weights.sh
+
+RUN chmod +x /usr/local/bin/download_weights.sh
+
+ENTRYPOINT ["/usr/local/bin/download_weights.sh"]
