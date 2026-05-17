@@ -56,20 +56,38 @@ COPY requirements.cuda.txt /opt/omniparser-container/requirements.cuda.txt
 
 RUN python3 -m pip install --upgrade pip setuptools wheel
 
+COPY <<'PY' /usr/local/bin/clean-python-artifacts
+#!/usr/bin/env python3
+import shutil
+import sysconfig
+from pathlib import Path
+
+roots = {
+    Path(sysconfig.get_path(name))
+    for name in ("purelib", "platlib")
+    if sysconfig.get_path(name)
+}
+
+for root in roots:
+    if not root.exists():
+        continue
+    for child in root.rglob("*"):
+        if child.is_dir() and child.name in {"__pycache__", "test", "tests"}:
+            shutil.rmtree(child, ignore_errors=True)
+PY
+
+RUN chmod +x /usr/local/bin/clean-python-artifacts
+
 RUN if [ "$FLAVOR" = "cuda" ]; then \
       python3 -m pip install torch torchvision --index-url "${TORCH_CUDA_INDEX}"; \
     else \
       python3 -m pip install torch torchvision --index-url "${TORCH_CPU_INDEX}"; \
     fi \
-    && find /usr/local/lib/python3.10/dist-packages \
-      \( -type d -name __pycache__ -o -type d -name tests -o -type d -name test \) \
-      -prune -exec rm -rf '{}' + \
+    && clean-python-artifacts \
     && rm -rf /root/.cache /tmp/*
 
 RUN python3 -m pip install -r /opt/omniparser-container/requirements.common.txt \
-    && find /usr/local/lib/python3.10/dist-packages \
-      \( -type d -name __pycache__ -o -type d -name tests -o -type d -name test \) \
-      -prune -exec rm -rf '{}' + \
+    && clean-python-artifacts \
     && rm -rf /root/.cache /tmp/*
 
 RUN if [ "$FLAVOR" = "cuda" ]; then \
@@ -77,9 +95,7 @@ RUN if [ "$FLAVOR" = "cuda" ]; then \
     else \
       python3 -m pip install -r /opt/omniparser-container/requirements.cpu.txt; \
     fi \
-    && find /usr/local/lib/python3.10/dist-packages \
-      \( -type d -name __pycache__ -o -type d -name tests -o -type d -name test \) \
-      -prune -exec rm -rf '{}' + \
+    && clean-python-artifacts \
     && rm -rf /root/.cache /tmp/*
 
 RUN git clone --depth 1 --branch "${OMNIPARSER_REF}" "${OMNIPARSER_REPO}" /app/OmniParser
