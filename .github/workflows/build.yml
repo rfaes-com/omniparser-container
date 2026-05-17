@@ -5,15 +5,37 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/omniparser-container
 
 jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Resolve version
+        id: version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   build-cpu-amd64:
-    runs-on: [self-hosted, linux, amd64]
-    permissions:
-      contents: read
-      packages: write
+    name: Build CPU (amd64)
+    runs-on: ubuntu-latest
+    needs: prepare
     steps:
       - uses: actions/checkout@v4
 
@@ -25,26 +47,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push CPU AMD64
-        run: |
-          extra_tags=()
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            extra_tags+=("-t" "$IMAGE:cpu-amd64-${GITHUB_REF_NAME}")
-          fi
-
-          docker buildx build \
-            --platform linux/amd64 \
-            --build-arg FLAVOR=cpu \
-            -t $IMAGE:cpu-amd64 \
-            -t $IMAGE:cpu-amd64-${{ github.sha }} \
-            "${extra_tags[@]}" \
-            --push .
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          build-args: FLAVOR=cpu
+          tags: ${{ env.IMAGE }}:cpu-amd64-${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-cpu-amd64
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-cpu-amd64,mode=max
 
   build-cpu-arm64:
-    runs-on: [self-hosted, linux, arm64]
-    permissions:
-      contents: read
-      packages: write
+    name: Build CPU (arm64)
+    runs-on: ubuntu-24.04-arm
+    needs: prepare
     steps:
       - uses: actions/checkout@v4
 
@@ -56,26 +72,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push CPU ARM64
-        run: |
-          extra_tags=()
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            extra_tags+=("-t" "$IMAGE:cpu-arm64-${GITHUB_REF_NAME}")
-          fi
-
-          docker buildx build \
-            --platform linux/arm64 \
-            --build-arg FLAVOR=cpu \
-            -t $IMAGE:cpu-arm64 \
-            -t $IMAGE:cpu-arm64-${{ github.sha }} \
-            "${extra_tags[@]}" \
-            --push .
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/arm64
+          build-args: FLAVOR=cpu
+          tags: ${{ env.IMAGE }}:cpu-arm64-${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-cpu-arm64
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-cpu-arm64,mode=max
 
   build-cuda-amd64:
-    runs-on: [self-hosted, linux, amd64, gpu]
-    permissions:
-      contents: read
-      packages: write
+    name: Build CUDA (amd64)
+    runs-on: ubuntu-latest
+    needs: prepare
     steps:
       - uses: actions/checkout@v4
 
@@ -87,32 +97,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push CUDA AMD64
-        run: |
-          extra_tags=()
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            extra_tags+=("-t" "$IMAGE:cuda-${GITHUB_REF_NAME}")
-            extra_tags+=("-t" "$IMAGE:cuda-cu121-amd64-${GITHUB_REF_NAME}")
-          fi
-
-          docker buildx build \
-            --platform linux/amd64 \
-            --build-arg FLAVOR=cuda \
-            -t $IMAGE:cuda \
-            -t $IMAGE:cuda-cu121-amd64 \
-            -t $IMAGE:cuda-${{ github.sha }} \
-            -t $IMAGE:cuda-cu121-amd64-${{ github.sha }} \
-            "${extra_tags[@]}" \
-            --push .
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          build-args: FLAVOR=cuda
+          tags: |
+            ${{ env.IMAGE }}:cuda-amd64-${{ github.sha }}
+            ${{ env.IMAGE }}:cuda-cu121-amd64-${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-cuda-amd64
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-cuda-amd64,mode=max
 
   publish-cpu-manifest:
-    runs-on: [self-hosted, linux, amd64]
-    needs:
-      - build-cpu-amd64
-      - build-cpu-arm64
-    permissions:
-      contents: read
-      packages: write
+    name: Publish CPU Multi-arch Manifest
+    runs-on: ubuntu-latest
+    needs: [prepare, build-cpu-amd64, build-cpu-arm64]
     steps:
       - uses: docker/setup-buildx-action@v3
 
@@ -122,16 +122,38 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish CPU multi-arch manifest
+      - name: Create and push CPU multi-arch manifest
         run: |
-          extra_tags=()
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            extra_tags+=("-t" "$IMAGE:cpu-${GITHUB_REF_NAME}")
-          fi
-
+          set -euo pipefail
           docker buildx imagetools create \
-            -t $IMAGE:cpu \
-            -t $IMAGE:cpu-${{ github.sha }} \
-            "${extra_tags[@]}" \
-            $IMAGE:cpu-amd64-${{ github.sha }} \
-            $IMAGE:cpu-arm64-${{ github.sha }}
+            -t "${{ env.IMAGE }}:cpu-${{ needs.prepare.outputs.version }}" \
+            -t "${{ env.IMAGE }}:cpu" \
+            "${{ env.IMAGE }}:cpu-amd64-${{ github.sha }}" \
+            "${{ env.IMAGE }}:cpu-arm64-${{ github.sha }}"
+
+      - name: Verify CPU manifest
+        run: docker buildx imagetools inspect "${{ env.IMAGE }}:cpu-${{ needs.prepare.outputs.version }}"
+
+  publish-cuda-manifest:
+    name: Publish CUDA Manifest
+    runs-on: ubuntu-latest
+    needs: [prepare, build-cuda-amd64]
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push CUDA manifest
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            -t "${{ env.IMAGE }}:cuda-${{ needs.prepare.outputs.version }}" \
+            -t "${{ env.IMAGE }}:cuda" \
+            "${{ env.IMAGE }}:cuda-amd64-${{ github.sha }}"
+
+      - name: Verify CUDA manifest
+        run: docker buildx imagetools inspect "${{ env.IMAGE }}:cuda-${{ needs.prepare.outputs.version }}"
