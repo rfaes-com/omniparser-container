@@ -2,7 +2,6 @@ name: build-weights-helper
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
     paths:
       - Dockerfile.weights
