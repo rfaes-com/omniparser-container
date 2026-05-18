@@ -27,9 +27,14 @@ jobs:
         id: version
         env:
           REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
-          version="${REF_NAME#v}"
+          if [ "${REF_TYPE}" = "tag" ]; then
+            version="${REF_NAME#v}"
+          else
+            version=""
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   build-cpu-amd64:
@@ -47,13 +52,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute tags
+        id: meta
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          {
+            echo "${{ env.IMAGE }}:cpu-amd64-${{ github.sha }}"
+            echo "${{ env.IMAGE }}:cpu-amd64"
+            if [ "${REF_TYPE}" = "tag" ]; then
+              echo "${{ env.IMAGE }}:cpu-amd64-${VERSION}"
+            fi
+          } > /tmp/tags.txt
+          { echo "tags<<EOF"; cat /tmp/tags.txt; echo "EOF"; } >> "$GITHUB_OUTPUT"
+
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           platforms: linux/amd64
           build-args: FLAVOR=cpu
-          tags: ${{ env.IMAGE }}:cpu-amd64-${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-cpu-amd64
           cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-cpu-amd64,mode=max
 
@@ -72,13 +93,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute tags
+        id: meta
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          {
+            echo "${{ env.IMAGE }}:cpu-arm64-${{ github.sha }}"
+            echo "${{ env.IMAGE }}:cpu-arm64"
+            if [ "${REF_TYPE}" = "tag" ]; then
+              echo "${{ env.IMAGE }}:cpu-arm64-${VERSION}"
+            fi
+          } > /tmp/tags.txt
+          { echo "tags<<EOF"; cat /tmp/tags.txt; echo "EOF"; } >> "$GITHUB_OUTPUT"
+
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           platforms: linux/arm64
           build-args: FLAVOR=cpu
-          tags: ${{ env.IMAGE }}:cpu-arm64-${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-cpu-arm64
           cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-cpu-arm64,mode=max
 
@@ -97,15 +134,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute tags
+        id: meta
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          {
+            echo "${{ env.IMAGE }}:cuda-cu121-amd64-${{ github.sha }}"
+            echo "${{ env.IMAGE }}:cuda-cu121-amd64"
+            if [ "${REF_TYPE}" = "tag" ]; then
+              echo "${{ env.IMAGE }}:cuda-cu121-amd64-${VERSION}"
+            fi
+          } > /tmp/tags.txt
+          { echo "tags<<EOF"; cat /tmp/tags.txt; echo "EOF"; } >> "$GITHUB_OUTPUT"
+
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           platforms: linux/amd64
           build-args: FLAVOR=cuda
-          tags: |
-            ${{ env.IMAGE }}:cuda-amd64-${{ github.sha }}
-            ${{ env.IMAGE }}:cuda-cu121-amd64-${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-cuda-amd64
           cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-cuda-amd64,mode=max
 
@@ -123,16 +174,24 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and push CPU multi-arch manifest
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
+          extra_tags=()
+          if [ "${REF_TYPE}" = "tag" ]; then
+            extra_tags+=("-t" "${{ env.IMAGE }}:cpu-${VERSION}")
+          fi
           docker buildx imagetools create \
-            -t "${{ env.IMAGE }}:cpu-${{ needs.prepare.outputs.version }}" \
             -t "${{ env.IMAGE }}:cpu" \
+            -t "${{ env.IMAGE }}:cpu-${{ github.sha }}" \
+            "${extra_tags[@]}" \
             "${{ env.IMAGE }}:cpu-amd64-${{ github.sha }}" \
             "${{ env.IMAGE }}:cpu-arm64-${{ github.sha }}"
 
       - name: Verify CPU manifest
-        run: docker buildx imagetools inspect "${{ env.IMAGE }}:cpu-${{ needs.prepare.outputs.version }}"
+        run: docker buildx imagetools inspect "${{ env.IMAGE }}:cpu-${{ github.sha }}"
 
   publish-cuda-manifest:
     name: Publish CUDA Manifest
@@ -148,12 +207,20 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and push CUDA manifest
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
+          extra_tags=()
+          if [ "${REF_TYPE}" = "tag" ]; then
+            extra_tags+=("-t" "${{ env.IMAGE }}:cuda-${VERSION}")
+          fi
           docker buildx imagetools create \
-            -t "${{ env.IMAGE }}:cuda-${{ needs.prepare.outputs.version }}" \
             -t "${{ env.IMAGE }}:cuda" \
-            "${{ env.IMAGE }}:cuda-amd64-${{ github.sha }}"
+            -t "${{ env.IMAGE }}:cuda-${{ github.sha }}" \
+            "${extra_tags[@]}" \
+            "${{ env.IMAGE }}:cuda-cu121-amd64-${{ github.sha }}"
 
       - name: Verify CUDA manifest
-        run: docker buildx imagetools inspect "${{ env.IMAGE }}:cuda-${{ needs.prepare.outputs.version }}"
+        run: docker buildx imagetools inspect "${{ env.IMAGE }}:cuda-${{ github.sha }}"
