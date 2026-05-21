@@ -102,20 +102,10 @@ RUN git clone --depth 1 --branch "${OMNIPARSER_REF}" "${OMNIPARSER_REPO}" /app/O
 
 WORKDIR /app/OmniParser
 
-RUN python3 - <<'PY'
-from pathlib import Path
-
-path = Path("gradio_demo.py")
-text = path.read_text()
-old = "demo.launch(share=True, server_port=7861, server_name='127.0.0.1')"
-new = "demo.launch(share=False, server_port=7861, server_name='0.0.0.0')"
-if old not in text:
-    raise SystemExit(f"Expected Gradio launch line not found in {path}")
-path.write_text(text.replace(old, new))
-PY
+COPY server.py /app/OmniParser/server.py
 
 RUN mkdir -p weights
 
-EXPOSE 7861
+EXPOSE 8000
 
-CMD ["python3", "gradio_demo.py"]
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
