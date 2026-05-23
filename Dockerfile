@@ -103,9 +103,11 @@ RUN git clone --depth 1 --branch "${OMNIPARSER_REF}" "${OMNIPARSER_REPO}" /app/O
 WORKDIR /app/OmniParser
 
 COPY server.py /app/OmniParser/server.py
+COPY entrypoint.sh /app/OmniParser/entrypoint.sh
 
-RUN mkdir -p weights
+RUN mkdir -p weights \
+    && chmod +x /app/OmniParser/entrypoint.sh
 
 EXPOSE 8000
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/OmniParser/entrypoint.sh"]

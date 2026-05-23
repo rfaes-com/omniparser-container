@@ -105,25 +105,39 @@ _device: str = "cpu"
 async def lifespan(app: FastAPI):  # noqa: ARG001
     global _yolo_model, _caption_model_processor, _semaphore, _executor, _device
 
-    _device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"[startup] device={_device}  caption_model={CAPTION_MODEL}")
+    try:
+        _device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"[startup] device={_device}  caption_model={CAPTION_MODEL}", flush=True)
 
-    _yolo_model = get_yolo_model(model_path=YOLO_MODEL_PATH)
-    if _device == "cuda":
-        _yolo_model.to("cuda")
+        print(f"[startup] loading YOLO model from {YOLO_MODEL_PATH!r} …", flush=True)
+        _yolo_model = get_yolo_model(model_path=YOLO_MODEL_PATH)
+        if _device == "cuda":
+            _yolo_model.to("cuda")
 
-    _caption_model_processor = get_caption_model_processor(
-        model_name=CAPTION_MODEL,
-        model_name_or_path=CAPTION_MODEL_PATH,
-        device=_device,
-    )
+        print(f"[startup] loading caption model from {CAPTION_MODEL_PATH!r} …", flush=True)
+        _caption_model_processor = get_caption_model_processor(
+            model_name=CAPTION_MODEL,
+            model_name_or_path=CAPTION_MODEL_PATH,
+            device=_device,
+        )
 
-    _semaphore = asyncio.Semaphore(MAX_CONCURRENCY) if MAX_CONCURRENCY > 0 else None
-    _executor = ThreadPoolExecutor(
-        max_workers=None if MAX_CONCURRENCY < 1 else MAX_CONCURRENCY
-    )
+        _semaphore = asyncio.Semaphore(MAX_CONCURRENCY) if MAX_CONCURRENCY > 0 else None
+        _executor = ThreadPoolExecutor(
+            max_workers=None if MAX_CONCURRENCY < 1 else MAX_CONCURRENCY
+        )
 
-    print("[startup] models loaded — server ready")
+        print("[startup] models loaded — server ready", flush=True)
+    except Exception as exc:
+        logger.critical(
+            "[startup] FATAL — model loading failed: %s\n"
+            "  YOLO path    : %s\n"
+            "  Caption path : %s\n"
+            "  Device       : %s",
+            exc, YOLO_MODEL_PATH, CAPTION_MODEL_PATH, _device,
+            exc_info=True,
+        )
+        raise
+
     yield
 
     if _executor:
