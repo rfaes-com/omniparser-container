@@ -32,13 +32,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import logging
 import os
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 # Ensure OmniParser's utils module (utils.py, etc.) is importable regardless
 # of working directory or how uvicorn is invoked.
@@ -82,6 +83,7 @@ CAPTION_MODEL_PATH: str = os.path.join(
     _CAPTION_DIR_MAP.get(CAPTION_MODEL, f"icon_caption_{CAPTION_MODEL}"),
 )
 YOLO_MODEL_PATH: str = os.path.join(WEIGHTS_DIR, "icon_detect", YOLO_MODEL_FILE)
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Module-level state (populated during lifespan startup)
@@ -150,8 +152,11 @@ app = FastAPI(
 
 class ParseResponse(BaseModel):
     image: str = Field(description="Base64-encoded annotated PNG")
-    parsed_content_list: list[str] = Field(
-        description="Human-readable description for each detected element"
+    parsed_content_list: list[str | dict[str, Any]] = Field(
+        description=(
+            "Detected element descriptions. Depending on OmniParser version, "
+            "items may be strings or structured dictionaries."
+        )
     )
     label_coordinates: dict = Field(
         description="Label index → [x1, y1, x2, y2] in ratio coordinates"
@@ -161,6 +166,22 @@ class ParseResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Blocking inference helper (runs in thread-pool executor)
 # ---------------------------------------------------------------------------
+
+
+def _jsonable(value: Any) -> Any:
+    """Convert common model/library return values into JSON-serializable data."""
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(item) for item in value]
+    if hasattr(value, "tolist"):
+        return _jsonable(value.tolist())
+    if hasattr(value, "item"):
+        try:
+            return _jsonable(value.item())
+        except Exception:
+            pass
+    return value
 
 
 def _run_inference(
@@ -212,8 +233,8 @@ def _run_inference(
 
         return ParseResponse(
             image=base64.b64encode(buf.getvalue()).decode(),
-            parsed_content_list=list(parsed_content_list),
-            label_coordinates=label_coordinates,
+            parsed_content_list=_jsonable(list(parsed_content_list)),
+            label_coordinates=_jsonable(label_coordinates),
         )
     finally:
         os.unlink(tmp_path)
@@ -250,6 +271,7 @@ async def parse_image(
                 _executor, _run_inference, img, box_threshold, iou_threshold
             )
         except Exception as exc:
+            logger.exception("OmniParser inference failed")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     if _semaphore is not None:

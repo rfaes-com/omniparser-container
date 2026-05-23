@@ -198,8 +198,11 @@ Parse a screenshot. Accepts a `multipart/form-data` request.
 {
   "image": "<base64-encoded annotated PNG>",
   "parsed_content_list": [
-    "icon: settings gear",
-    "text: File"
+    "text: File",
+    {
+      "type": "icon",
+      "content": "settings gear"
+    }
   ],
   "label_coordinates": {
     "0": [0.12, 0.34, 0.18, 0.40],
@@ -211,7 +214,7 @@ Parse a screenshot. Accepts a `multipart/form-data` request.
 | Field | Description |
 |-------|-------------|
 | `image` | Base64-encoded PNG with bounding-box annotations drawn on the original screenshot |
-| `parsed_content_list` | Human-readable description for each detected element |
+| `parsed_content_list` | Detected element descriptions. Depending on OmniParser version, items may be strings or structured dictionaries |
 | `label_coordinates` | Label index → `[x1, y1, x2, y2]` in ratio coordinates (0–1) |
 
 ## Testing the API
