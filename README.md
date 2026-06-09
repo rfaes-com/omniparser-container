@@ -62,8 +62,18 @@ docker buildx build -f Dockerfile.weights -t localhost/omniparser-weights --load
 
 docker run --rm \
   -v "$(pwd)/weights:/weights" \
+  -v "$(pwd)/model-cache/easyocr:/weights-easyocr" \
   localhost/omniparser-weights
 ```
+
+The script downloads:
+
+| Content | Default container path | Override env var |
+|---|---|---|
+| OmniParser V2 weights | `/weights` | `TARGET_DIR` |
+| EasyOCR models | `/weights-easyocr` | `EASYOCR_TARGET_DIR` |
+
+EasyOCR models are stored under `<EASYOCR_TARGET_DIR>/model/` (matching EasyOCR's `EASYOCR_MODULE_PATH` convention). Mount that directory to `/root/.EasyOCR` in the runtime container so EasyOCR resolves them without a network download.
 
 Equivalent host command:
 

@@ -6,7 +6,7 @@ ENV PIP_NO_CACHE_DIR=1 \
     HF_HOME=/cache/huggingface
 
 RUN python -m pip install --upgrade pip \
-    && python -m pip install "huggingface-hub[cli]"
+    && python -m pip install "huggingface-hub[cli]" "easyocr"
 
 COPY scripts/download_weights.sh /usr/local/bin/download_weights.sh
 
